@@ -1,0 +1,22 @@
+wxawebcat/
+├── README.md                       # Complete documentation
+├── QUICKSTART.md                   # Quick start guide
+├── requirements.txt                # Python dependencies
+├── install.sh                      # Installation script
+├── .gitignore                      # Git ignore file
+│
+├── scripts/                        # Python scripts
+│   ├── wxawebcat_db.py            # Database management
+│   ├── wxawebcat_web_fetcher_db.py # Web fetcher
+│   ├── wxawebcat_classifier_db.py  # LLM classifier
+│   ├── add_iab_categories_db.py   # IAB enrichment
+│   └── verify_config.sh           # Config verification
+│
+├── configs/                        # Configuration files
+│   ├── wxawebcat_enhanced.toml    # Balanced config
+│   ├── wxawebcat_highperf.toml    # High-performance
+│   ├── wxawebcat_ultra.toml       # Ultra-fast
+│   └── wxawebcat_extreme.toml     # Maximum speed
+│
+└── docs/                           # Additional documentation
+    └── (various .md files)
