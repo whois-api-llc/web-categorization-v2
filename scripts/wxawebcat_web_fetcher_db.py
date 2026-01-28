@@ -432,6 +432,8 @@ async def main_async(args: argparse.Namespace):
     ) as http_client:
         
         stats = FetchStats(total=total_domains)
+        results_buffer = []
+        buffer_lock = asyncio.Lock()
         
         async def process_one(domain: str) -> Optional[Dict]:
             """Process one domain"""
@@ -463,29 +465,94 @@ async def main_async(args: argparse.Namespace):
                     "fetch_status": "http_failed"
                 }
         
-        # Process in batches
-        batch_num = 0
+        async def worker(queue: asyncio.Queue):
+            """Worker that continuously processes domains from queue"""
+            while True:
+                try:
+                    domain = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    # Check if we should exit (queue empty and no more domains)
+                    if queue.empty():
+                        return
+                    continue
+                
+                if domain is None:  # Poison pill - shutdown signal
+                    return
+                
+                result = await process_one(domain)
+                
+                if result:
+                    async with buffer_lock:
+                        results_buffer.append(result)
+                
+                queue.task_done()
         
-        for i in range(0, total_domains, cfg.batch_size):
-            batch = domains_to_fetch[i:i + cfg.batch_size]
-            batch_num += 1
-            
-            # Process batch in parallel - NO DELAYS!
-            batch_results = await asyncio.gather(*[process_one(d) for d in batch])
-            
-            # Filter valid results
-            valid_results = [r for r in batch_results if r is not None]
-            
-            # Commit to database
-            if valid_results:
-                with get_connection(cfg.db_path) as conn:
-                    batch_insert_domains(conn, valid_results)
-            
-            # Progress update
-            pct = stats.completed / stats.total * 100
-            print(f"[{stats.completed:,}/{stats.total:,}] {pct:.1f}% | "
-                  f"{stats.rate:.1f}/s | ETA: {stats.format_eta()} | "
-                  f"✓{stats.successful} ✗DNS:{stats.dns_failed} ✗HTTP:{stats.http_failed} 🛡{stats.blocked}")
+        async def db_writer():
+            """Periodically flush results to database"""
+            while True:
+                await asyncio.sleep(2.0)  # Flush every 2 seconds
+                
+                async with buffer_lock:
+                    if results_buffer:
+                        to_write = results_buffer.copy()
+                        results_buffer.clear()
+                    else:
+                        to_write = []
+                
+                if to_write:
+                    with get_connection(cfg.db_path) as conn:
+                        batch_insert_domains(conn, to_write)
+        
+        async def progress_reporter():
+            """Report progress periodically"""
+            last_completed = 0
+            while stats.completed < stats.total:
+                await asyncio.sleep(3.0)  # Report every 3 seconds
+                
+                current = stats.completed
+                recent_rate = (current - last_completed) / 3.0  # Rate over last 3 seconds
+                last_completed = current
+                
+                pct = stats.completed / stats.total * 100
+                print(f"[{stats.completed:,}/{stats.total:,}] {pct:.1f}% | "
+                      f"{stats.rate:.1f}/s (recent: {recent_rate:.0f}/s) | ETA: {stats.format_eta()} | "
+                      f"✓{stats.successful} ✗DNS:{stats.dns_failed} ✗HTTP:{stats.http_failed} 🛡{stats.blocked}")
+        
+        # Create work queue
+        queue = asyncio.Queue(maxsize=cfg.fetch_concurrency * 2)
+        
+        # Start workers
+        num_workers = cfg.fetch_concurrency
+        workers = [asyncio.create_task(worker(queue)) for _ in range(num_workers)]
+        
+        # Start DB writer and progress reporter
+        db_task = asyncio.create_task(db_writer())
+        progress_task = asyncio.create_task(progress_reporter())
+        
+        print(f"Started {num_workers} workers...")
+        
+        # Feed domains to queue
+        for domain in domains_to_fetch:
+            await queue.put(domain)
+        
+        # Wait for all work to complete
+        await queue.join()
+        
+        # Send shutdown signal to workers
+        for _ in range(num_workers):
+            await queue.put(None)
+        
+        # Wait for workers to finish
+        await asyncio.gather(*workers)
+        
+        # Cancel background tasks
+        db_task.cancel()
+        progress_task.cancel()
+        
+        # Final flush of any remaining results
+        if results_buffer:
+            with get_connection(cfg.db_path) as conn:
+                batch_insert_domains(conn, results_buffer)
     
     # Final summary
     print(f"\n{'='*70}")
