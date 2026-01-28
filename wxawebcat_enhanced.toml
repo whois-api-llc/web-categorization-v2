@@ -1,0 +1,255 @@
+###############################################################################
+# wxawebcat – Web XML API Web Categorization
+# Global configuration (ENHANCED VERSION with TLD rules and content hash)
+###############################################################################
+
+[paths]
+# Base directories
+input_dir   = "./input"
+fetch_dir   = "./fetch"
+classify_dir = "./classify"
+log_dir     = "./logs"
+
+###############################################################################
+# FETCH STAGE CONFIGURATION (wxawebcat_fetcher.py)
+###############################################################################
+
+[fetch]
+
+# Overall async concurrency for fetch workers
+fetch_concurrency = 500
+
+# DNS resolution concurrency (kept lower to avoid resolver abuse)
+dns_concurrency = 200
+
+# HTTP request timeout (seconds)
+http_timeout = 15
+
+# Supported values: "aiohttp", "httpx"
+http_client = "aiohttp"
+
+# Enable HTTP/2 where supported
+enable_http2 = false
+
+# Browser-like headers
+user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+accept_language = "en-US,en;q=0.9"
+
+# Retry behavior
+max_retries = 2
+retry_backoff_base = 1.5
+
+###############################################################################
+# FETCH FALLBACKS (ANTI-BOT / WAF HANDLING)
+###############################################################################
+
+[fallbacks]
+
+# Enable Playwright fallback (slow but most complete)
+enable_playwright = true
+
+# Playwright timeout (seconds)
+playwright_timeout = 30
+
+# Enable curl-impersonate fallback
+enable_curl_impersonate = true
+
+# Fallback order:
+#   "playwright_first" or "curl_first"
+fallback_order = "playwright_first"
+
+###############################################################################
+# TLS COLLECTION
+###############################################################################
+
+[tls]
+
+# TLS collection disabled by default (CDN edge + perf impact)
+enable_tls = false
+
+# Collect full certificate chain
+collect_chain = false
+
+###############################################################################
+# FETCH OUTPUT CONTROL
+###############################################################################
+
+[fetch_output]
+
+# Skip FQDNs already present in fetch_dir
+dedupe_enabled = true
+
+# Store only small HTML snippet (recommended)
+max_body_snippet_bytes = 4096
+
+# Store DOM-visible text for Playwright fetches (optional)
+store_visible_text = false
+
+# Normalize HTML (strip scripts/styles)
+normalize_html = true
+
+###############################################################################
+# CLASSIFIER STAGE CONFIGURATION (wxawebcat_fetcher_enhanced.py)
+###############################################################################
+
+[classifier]
+
+# Skip FQDNs already classified
+resume_enabled = true
+
+# High-level rule confidence cutoff (>= skips LLM)
+rule_confidence_cutoff = 0.85
+
+# Maximum number of files read concurrently
+file_concurrency = 200
+
+###############################################################################
+# LLM / vLLM CONFIGURATION
+###############################################################################
+
+[llm]
+
+# OpenAI-compatible vLLM endpoint
+base_url = "http://127.0.0.1:8000/v1"
+
+# Model identifier (must match vLLM)
+model = "Qwen/Qwen2.5-7B-Instruct"
+
+# Concurrent in-flight LLM requests
+llm_concurrency = 32
+
+# Request timeout (seconds)
+request_timeout = 60
+
+# Sampling
+temperature = 0.1
+max_tokens = 220
+
+###############################################################################
+# TLD-BASED CLASSIFICATION (NEW - ENHANCEMENT)
+###############################################################################
+
+[tld_rules]
+
+# Enable TLD-based instant classification
+# When enabled, domains with special-purpose TLDs (.gov, .edu, .xxx, etc.)
+# are classified instantly with high confidence, skipping both rules and LLM
+enabled = true
+
+# You can extend the TLD mappings in the code by editing TLD_CATEGORY_MAP
+# The following TLDs are currently supported:
+# - Government: .gov, .mil, .gov.uk, .gov.au, .gov.ca
+# - Education: .edu, .ac.uk, .edu.au, .edu.cn
+# - Adult: .xxx, .adult, .porn, .sex
+# - Finance: .bank, .insurance
+# - Technology: .crypto, .nft, .blockchain
+# - Other: .museum, .church, .test, .localhost, .local, .example
+
+###############################################################################
+# CONTENT HASH DEDUPLICATION (NEW - ENHANCEMENT)
+###############################################################################
+
+[content_hash]
+
+# Enable content hash-based deduplication
+# When enabled, duplicate content (same title + description + snippet) across
+# different domains will reuse the first classification, saving LLM calls.
+# Particularly effective for parked domains and error pages.
+enabled = true
+
+# Path to persistent cache file
+cache_file = "./logs/content_hash_cache.json"
+
+# Minimum content length to hash (characters)
+# Content shorter than this won't be hashed to avoid false positives
+min_content_length = 50
+
+# Cache statistics will be printed at the end of each run showing:
+# - Cache size (number of unique content hashes)
+# - Hit rate (percentage of domains that matched cached content)
+# - LLM calls saved (absolute number and percentage)
+
+###############################################################################
+# RULE ENGINE CONFIGURATION
+###############################################################################
+
+[rules]
+
+# Enable rule-based pre-classification
+enable_rules = true
+
+# Treat these HTTP statuses as unreachable
+unreachable_statuses = [0, 408, 520, 521, 522, 523, 524]
+
+# Treat these HTTP statuses as blocked if fingerprint matches
+blocked_statuses = [403, 429]
+
+###############################################################################
+# PARKED DOMAIN FINGERPRINTS
+###############################################################################
+
+[rules.parked]
+
+keywords = [
+  "domain for sale",
+  "buy this domain",
+  "this domain is for sale",
+  "sedo",
+  "afternic",
+  "dan.com",
+  "bodis",
+  "parkingcrew",
+  "domain parked",
+  "parked domain"
+]
+
+###############################################################################
+# BLOCK / WAF FINGERPRINTS
+###############################################################################
+
+[rules.blocked]
+
+keywords = [
+  "access denied",
+  "request blocked",
+  "unusual traffic",
+  "verify you are human",
+  "captcha",
+  "challenge",
+  "checking your browser",
+  "ddos protection",
+  "attention required",
+  "cloudflare",
+  "akamai",
+  "imperva",
+  "incapsula"
+]
+
+###############################################################################
+# NOT FOUND FINGERPRINTS
+###############################################################################
+
+[rules.not_found]
+
+keywords = [
+  "not found",
+  "page not found",
+  "does not exist",
+  "doesn't exist"
+]
+
+###############################################################################
+# LOGGING / METRICS
+###############################################################################
+
+[logging]
+
+# Log fetch and classify errors
+error_log = "./logs/errors.jsonl"
+
+# Emit final summary metrics
+enable_summary = true
+
+# Log level: DEBUG | INFO | WARN | ERROR
+log_level = "INFO"
