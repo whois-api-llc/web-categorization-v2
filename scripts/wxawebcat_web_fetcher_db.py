@@ -101,29 +101,68 @@ def extract_visible_text(html: str, max_chars: int = 1000) -> str:
 
 
 async def dns_lookup_fast(domain: str, resolver: aiodns.DNSResolver, 
-                          timeout: float = 5.0) -> Dict[str, Any]:
+                          timeout: float = 5.0, debug: bool = False) -> Dict[str, Any]:
     """Fast DNS lookup - only A records needed for HTTP fetch"""
     result = {"rcode": "NOERROR", "a": [], "aaaa": [], "cname": [], "mx": []}
     
     try:
         # Only fetch A records - that's all we need for HTTP
-        a_records = await asyncio.wait_for(
+        response = await asyncio.wait_for(
             resolver.query_dns(domain, 'A'),
             timeout=timeout
         )
-        result["a"] = [r.host for r in a_records]
+        
+        # Extract IPs from the new aiodns response format
+        # New format: DNSResult(answer=[DNSRecord(data=ARecordData(addr='1.2.3.4'))])
+        ips = []
+        
+        # Handle DNSResult object with answer list
+        if hasattr(response, 'answer'):
+            for record in response.answer:
+                if hasattr(record, 'data') and hasattr(record.data, 'addr'):
+                    ips.append(record.data.addr)
+                elif hasattr(record, 'host'):
+                    ips.append(record.host)
+        # Handle list of records (old format)
+        elif isinstance(response, list):
+            for r in response:
+                if hasattr(r, 'data') and hasattr(r.data, 'addr'):
+                    ips.append(r.data.addr)
+                elif hasattr(r, 'host'):
+                    ips.append(r.host)
+                elif hasattr(r, 'address'):
+                    ips.append(r.address)
+        # Single record
+        elif hasattr(response, 'host'):
+            ips.append(response.host)
+        
+        result["a"] = ips
+        
+        if debug:
+            print(f"  DNS OK: {domain} -> {ips[:2]}")
+            
     except asyncio.TimeoutError:
         result["rcode"] = "TIMEOUT"
+        if debug:
+            print(f"  DNS TIMEOUT: {domain}")
     except aiodns.error.DNSError as e:
         error_str = str(e)
+        if debug:
+            print(f"  DNS ERROR: {domain} -> {error_str[:60]}")
         if 'NXDOMAIN' in error_str or 'Domain name not found' in error_str:
             result["rcode"] = "NXDOMAIN"
-        elif 'SERVFAIL' in error_str:
+        elif 'SERVFAIL' in error_str or 'general failure' in error_str:
             result["rcode"] = "SERVFAIL"
+        elif 'no data' in error_str.lower():
+            result["rcode"] = "NODATA"
+        elif 'Timeout' in error_str:
+            result["rcode"] = "TIMEOUT"
         else:
             result["rcode"] = "ERROR"
     except Exception as e:
         result["rcode"] = "ERROR"
+        if debug:
+            print(f"  DNS EXCEPTION: {domain} -> {type(e).__name__}: {e}")
     
     return result
 
@@ -190,12 +229,13 @@ async def fetch_domain_fast(domain: str, cfg: FetchConfig,
                             dns_sem: asyncio.Semaphore,
                             http_sem: asyncio.Semaphore, 
                             resolver: aiodns.DNSResolver,
-                            http_client: httpx.AsyncClient) -> Dict[str, Any]:
+                            http_client: httpx.AsyncClient,
+                            debug: bool = False) -> Dict[str, Any]:
     """Fetch complete data for a domain - optimized"""
     
     # DNS lookup (with semaphore for concurrency control)
     async with dns_sem:
-        dns_result = await dns_lookup_fast(domain, resolver, cfg.dns_timeout)
+        dns_result = await dns_lookup_fast(domain, resolver, cfg.dns_timeout, debug=debug)
     
     # HTTP fetch (with semaphore for concurrency control)
     async with http_sem:
@@ -434,12 +474,23 @@ async def main_async(args: argparse.Namespace):
         stats = FetchStats(total=total_domains)
         results_buffer = []
         buffer_lock = asyncio.Lock()
+        debug_count = 0
+        debug_lock = asyncio.Lock()
         
         async def process_one(domain: str) -> Optional[Dict]:
             """Process one domain"""
+            nonlocal debug_count
+            
+            # Enable debug for first 20 domains
+            async with debug_lock:
+                should_debug = debug_count < 20
+                if should_debug:
+                    debug_count += 1
+            
             try:
                 data = await fetch_domain_fast(
-                    domain, cfg, dns_sem, http_sem, resolver, http_client
+                    domain, cfg, dns_sem, http_sem, resolver, http_client,
+                    debug=should_debug
                 )
                 
                 # Update stats
