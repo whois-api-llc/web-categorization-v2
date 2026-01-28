@@ -1,0 +1,52 @@
+# wxawebcat High-Performance Configuration
+# Optimized for AMD Ryzen 9 9950X (16 cores / 32 threads)
+
+[dns]
+# DNS servers for round-robin lookups
+servers = [
+    "1.1.1.1",          # Cloudflare Primary
+    "1.0.0.1",          # Cloudflare Secondary
+    "8.8.8.8",          # Google Primary
+    "8.8.4.4",          # Google Secondary
+    "9.9.9.9",          # Quad9
+    "208.67.222.222"    # OpenDNS
+]
+
+# DNS rate limiting - Aggressive but still respectful
+# With your CPU, you can handle faster DNS lookups
+delay_ms = 5            # 5ms = up to 200 queries/second (was 10ms)
+
+[fetcher]
+# Fetcher settings - Optimized for 32-thread CPU
+batch_size = 200            # Larger batches = fewer commits = faster
+fetch_concurrency = 150     # High concurrency (you have 32 threads!)
+dns_concurrency = 50        # More parallel DNS queries
+
+# Note: These settings are aggressive but your system can handle it
+# If you see connection pool errors, reduce fetch_concurrency to 100
+
+[llm]
+# LLM endpoint configuration
+base_url = "http://127.0.0.1:8000/v1"
+model = "Qwen/Qwen2.5-7B-Instruct"
+llm_concurrency = 40        # Increased from 32 to use more threads
+request_timeout = 60
+max_tokens = 150
+
+[classifier]
+# Classifier settings
+rule_confidence_cutoff = 0.85
+batch_size = 200            # Larger batches = faster commits
+
+# Watch mode settings
+watch_mode = false
+watch_interval = 5          # Faster polling (was 10s)
+
+[tld_rules]
+# TLD-based classification
+enabled = true
+
+[content_hash]
+# Content hash deduplication
+enabled = true
+min_content_length = 50

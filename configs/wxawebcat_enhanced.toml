@@ -1,0 +1,49 @@
+# wxawebcat Configuration File
+# Complete configuration for web categorization system
+
+[dns]
+# DNS servers for round-robin lookups
+servers = [
+    "1.1.1.1",          # Cloudflare Primary
+    "1.0.0.1",          # Cloudflare Secondary
+    "8.8.8.8",          # Google Primary
+    "8.8.4.4",          # Google Secondary
+    "9.9.9.9",          # Quad9
+    "208.67.222.222"    # OpenDNS
+]
+
+# DNS rate limiting (milliseconds between queries)
+delay_ms = 10
+
+[fetcher]
+# Fetcher-specific settings
+batch_size = 100            # Domains per database commit
+fetch_concurrency = 50      # HTTP requests in parallel
+dns_concurrency = 20        # DNS queries in parallel
+
+[llm]
+# LLM endpoint configuration
+base_url = "http://127.0.0.1:8000/v1"
+model = "Qwen/Qwen2.5-7B-Instruct"
+llm_concurrency = 32
+request_timeout = 60
+max_tokens = 150
+
+[classifier]
+# Classifier settings
+rule_confidence_cutoff = 0.85
+batch_size = 100
+
+# Watch mode: continuously monitor for new unclassified domains
+# Set to true to run classifier as a background service
+watch_mode = false          # Set to true for continuous operation
+watch_interval = 10         # Seconds between checks (5-60 recommended)
+
+[tld_rules]
+# TLD-based classification
+enabled = true
+
+[content_hash]
+# Content hash deduplication
+enabled = true
+min_content_length = 50
