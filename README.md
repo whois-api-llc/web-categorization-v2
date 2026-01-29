@@ -1,5 +1,10 @@
 # WxaWebCat - High-Performance Web Domain Categorization System
 
+Ed Gibbs, Vice President of Research and Rapid Development
+WHOIS API, Inc.
+(C) 2026
+v2.0
+
 A blazingly fast, scalable web domain fetching and categorization pipeline optimized for processing millions of domains with LLM-powered classification.
 
 ## 🚀 Features
